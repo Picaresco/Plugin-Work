@@ -64,7 +64,9 @@ claude plugin install tokens-sesion@tokens-sesion
 ```
 
 El plugin se llama `tokens-sesion` (el nombre con el que nació, cuando solo era la banda);
-el repositorio, `Plugin-Work`. Probado con Claude Code 2.1.296.
+el repositorio, `Plugin-Work`. Probado con Claude Code 2.1.300. Con 2.1.300 o posterior
+hace falta la versión 0.11.1 del plugin: con las anteriores el panel de agentes abre una
+tarea por cada subagente y un agente retomado pierde sus tokens.
 
 ### Si ya lo tenías instalado
 
@@ -208,7 +210,8 @@ proyectos. Al pie, los tokens gastados por modelo en la sesión.
 - El modelo es un alias: lo resuelve Claude Code a su versión actual.
 - La tabla manda sobre el modelo que pida la llamada. Para una excepción, pon esa fila
   en «heredar».
-- Un fork y los agentes de un workflow heredan siempre: Claude Code no deja cambiarlos.
+- Un fork y los agentes de un workflow heredan siempre: el fork no se puede cambiar y los de
+  un workflow usan el modelo que les da su script.
 - El esfuerzo solo se cambia en los modelos que lo admiten.
 
 ### Pestaña Sesión

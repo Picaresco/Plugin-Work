@@ -1,6 +1,6 @@
 {
   "name": "tokens-sesion",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "description": "Banda sobre el prompt con el contexto (cifra y barra de verde a rojo), el gasto de la sesión, el uso de CPU y RAM del equipo y el límite semanal del plan; hace que el motor compacte, también a mitad de una tarea, al llegar el contexto al umbral, que se cambia arrastrando la marca de la barra, y guarda el resumen de cada compactación. Panel lateral con los subagentes de cada tarea (inicio, fin, duración y tokens), el plan del trabajo paso a paso con lo que tardó cada uno , el modelo y el esfuerzo de cada tipo de agente y el resumen de la sesión; guarda en el proyecto un histórico de cada sesión y, si se activa, mantiene viva la caché en las pausas mientras sea lo más barato.",
   "author": { "name": "Alberto" },
   "types": "./types/index.d.ts"

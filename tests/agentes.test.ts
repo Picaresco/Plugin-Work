@@ -374,6 +374,46 @@ test('agrupa por tarea, la más reciente arriba, con su total; las tareas sin ag
   ])
 })
 
+test('el arranque de un subagente no abre otra tarea: los agentes siguientes caen en la del prompt', async ($, on) => {
+  const { start, prompt, spawn } = world($, on)
+  await start()
+  await prompt('principal')
+  await spawn('a1', { description: 'primero' })
+  // El motor avisa también del turno con que empieza cada subagente.
+  await $.turn.start({ text: 'el prompt de a1', turnId: 'ta1', agentId: 'a1' })
+  await spawn('a2', { description: 'segundo' })
+
+  expect(await lines($)).toEqual([
+    `Tarea 1 · ${hora(NOW)} · 2 agentes · 0 tok`,
+    'principal',
+    `● ${hora(NOW)} → en curso                  0 tok`,
+    '  Explore · primero · haiku-5-5',
+    `● ${hora(NOW)} → en curso                  0 tok`,
+    '  Explore · segundo · haiku-5-5',
+  ])
+})
+
+test('un agente retomado sigue en su tarea con sus tokens', async ($, on) => {
+  const { start, prompt, spawn, ask, end, clock } = world($, on)
+  await start()
+  await prompt('primera')
+  await spawn('a1')
+  await ask(usage(10_000, 920, 0, 0), 'a1')
+  await clock.advance(30_000)
+  await end('a1')
+  await prompt('segunda')
+  // SendMessage al agente acabado: el motor lo anuncia como un arranque con `resume`.
+  await spawn('a1', { prompt: 'sigue', resume: { agentId: 'a1' } })
+  await ask(usage(500, 0, 0, 0), 'a1')
+
+  expect(await lines($)).toEqual([
+    `Tarea 1 · ${hora(NOW)} · 1 agente · 11.420 tok`,
+    'primera',
+    `● ${hora(NOW)} → en curso             11.420 tok`,
+    '  Explore · buscar hooks · haiku-5-5',
+  ])
+})
+
 test('un arranque rechazado no deja línea, y los tokens que llegan antes del arranque se suman', async ($, on) => {
   const { start, prompt, spawn, ask } = world($, on)
   await start()
@@ -530,7 +570,16 @@ test('el modelo elegido para un tipo se pone al arrancar sus agentes y se guarda
   // A un fork y a los agentes de un workflow no se les cambia.
   await spawn('a4', { subagentType: 'fork', fork: true })
   await spawn('a5', { workflow: { runId: 'wf_1', agentIndex: 1 }, model: 'opus' })
-  expect(spawns.map(input => input.model)).toEqual(['haiku', 'haiku', 'sonnet', undefined, 'opus'])
+  // Ni a uno retomado: el motor solo deja negarlo.
+  await spawn('a1', { resume: { agentId: 'a1' }, prompt: 'sigue' })
+  expect(spawns.map(input => input.model)).toEqual([
+    'haiku',
+    'haiku',
+    'sonnet',
+    undefined,
+    'opus',
+    undefined,
+  ])
 
   // El tipo nuevo ya tiene fila; el fork, no.
   const keys = (await ui.findAll({ type: 'Select' })).map(select => select.key)

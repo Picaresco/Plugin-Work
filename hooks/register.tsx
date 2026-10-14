@@ -1839,7 +1839,12 @@ const registrarAgentes = (on: On): void => {
   })
 
   // Cada prompt del hilo principal es una tarea; se guardan solo las que lanzaron algún agente.
+  // El motor también avisa al empezar cada subagente (`agentId`): eso no es una tarea.
   on('turn.start', async ($, e, next) => {
+    if (e.agentId !== undefined) {
+      return next(e)
+    }
+
     enTurno = true
     const inicio = await $.clock.now()
     const usadas = new Set((await read($, agentes)).map(agente => agente.tarea))
@@ -1858,9 +1863,15 @@ const registrarAgentes = (on: On): void => {
     return next(e)
   })
 
-  // El modelo de la tabla manda sobre el que pida la llamada; a un fork y a los agentes de un
-  // workflow el motor no deja cambiárselo.
+  // El modelo de la tabla manda sobre el que pida la llamada; un fork y los agentes de un workflow
+  // heredan.
   on('agent.spawn', async ($, e, next) => {
+    // Un agente retomado (SendMessage) sigue en su línea y en su tarea: su primera petición lo
+    // vuelve a poner en curso. El motor no deja cambiarle nada.
+    if (e.resume !== undefined) {
+      return next(e)
+    }
+
     const inicio = await $.clock.now()
     const modelo = rutaDe(await read($, rutas), e.subagentType).modelo
     const started = await next(
