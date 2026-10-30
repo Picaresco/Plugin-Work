@@ -11,6 +11,11 @@ export type Agente = {
   tokens: number
   esfuerzo: string | null
   hereda: boolean
+  // Lo trabajado en tramos ya cerrados y cuándo empezó el último: un retomado no cuenta el hueco.
+  ms: number
+  desde: number
+  // El workflow que lo lanzó, si lo lanzó uno.
+  runId: string | null
 }
 
 export type Tarea = { n: number; inicio: number; texto: string }
@@ -53,15 +58,17 @@ declare module 'claude-code' {
     'tokens-sesion': {
       gastados: number
       contexto: number | null
-      resumen: string | null
       umbral: number
       efectivo: number
       maximo: number
+      rechazos: number
+      hidratada: boolean
       sinRaton: boolean
       uso: { cpu: number; ram: number } | null
       semana: { pct: number; renueva: string | null } | null
       porModelo: { nombre: string; pct: number; renueva: string | null }[]
-      agentes: Agente[]
+      agentes: Shaped<Agente[]>
+      retirados: Agente[]
       tareas: Tarea[]
       oculto: boolean
       rutas: Record<string, Ruta>
@@ -74,6 +81,7 @@ declare module 'claude-code' {
       historico: string | null
       cache: Cache
       pasos: Paso[]
+      pasosRetirados: Paso[]
     }
   }
 }

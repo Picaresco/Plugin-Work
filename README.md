@@ -25,7 +25,7 @@ que duran horas. Casi nada de eso se ve mientras ocurre:
 
 - el contexto crece sin que se note, y cada petición lo vuelve a enviar entero;
 - el compactado automático salta casi al final de la ventana, cuando la sesión ya es cara y
-  lenta, y su resumen no se guarda en ningún sitio;
+  lenta, y su resumen queda enterrado en el registro de la conversación;
 - los subagentes arrancan y terminan sin dejar rastro de cuánto tardaron ni cuánto gastaron,
   y todos usan el modelo de la sesión aunque la tarea sea trivial;
 - no hay forma de ver de un vistazo qué pasos del trabajo están hechos y cuáles faltan;
@@ -64,9 +64,9 @@ claude plugin install tokens-sesion@tokens-sesion
 ```
 
 El plugin se llama `tokens-sesion` (el nombre con el que nació, cuando solo era la banda);
-el repositorio, `Plugin-Work`. Probado con Claude Code 2.1.300. Con 2.1.300 o posterior
-hace falta la versión 0.11.1 del plugin: con las anteriores el panel de agentes abre una
-tarea por cada subagente y un agente retomado pierde sus tokens.
+el repositorio, `Plugin-Work`. Probado con Claude Code 2.1.314. Con 2.1.300 o posterior
+hace falta la versión 0.11.1 del plugin o una más nueva: con las anteriores el panel de agentes
+abre una tarea por cada subagente y un agente retomado pierde sus tokens.
 
 ### Si ya lo tenías instalado
 
@@ -90,8 +90,8 @@ funcionando): cancela y usa las dos órdenes de arriba.
 | `/agentes tareas` · `/agentes rutas` · `/agentes sesion` | Abre el panel en esa pestaña |
 | `/agentes cache si` · `/agentes cache no` | Activa o desactiva la caché viva |
 | `/agentes cerrar` | Cierra el panel (el registro sigue) |
-| `/agentes limpiar` | Vacía el registro de agentes y el plan de tareas |
-| `/tokens-compact 850000` | Fija el umbral de compactado; sin argumentos lo muestra y `0` lo desactiva |
+| `/agentes limpiar` | Vacía el panel de agentes y el plan de tareas; el histórico los conserva |
+| `/tokens-compact 850000` | Fija el umbral de compactado; sin argumentos lo muestra y `0` quita el del mod |
 
 ## La banda sobre el prompt
 
@@ -121,14 +121,18 @@ también actúa en tareas largas y con subagentes. El mod:
 - añade a cada compactación la instrucción de conservar peticiones, decisiones,
   ficheros tocados, errores resueltos y tareas pendientes,
 - guarda el resumen en `<proyecto>/.claude/resumenes/resumen-<fecha UTC>.md`, también
-  el de las compactaciones manuales (`/compact`), y avisa con la ruta.
+  el de las compactaciones manuales (`/compact`), y avisa con la ruta. Si no se puede
+  escribir, avisa de eso: el resumen sigue en la conversación.
 
 ### Cambiar el umbral
 
 - **Con el ratón**: arrastra la marca `┃` de la barra. Mientras la mueves enseña la
-  cifra; al soltarla queda guardada y se aplica al momento.
+  cifra; al soltarla queda guardada y se aplica al momento. Un clic sin mover no cambia nada.
 - **Con un comando**: `/tokens-compact 850000`. Sin argumentos muestra el umbral
-  actual y `/tokens-compact 0` lo desactiva: el motor vuelve a compactar donde lo hace por su cuenta.
+  actual. `/tokens-compact 0` quita el del mod: el motor sigue compactando, donde lo hace por su
+  cuenta, y la marca desaparece.
+
+Los dos comandos del mod se atienden al momento, también con un turno en marcha.
 
 El umbral va de 200.000 a 950.000 tokens (650.000 al instalar) y se guarda para
 todas tus sesiones y proyectos.
@@ -139,9 +143,10 @@ Un panel lateral con cuatro pestañas, que se eligen con los botones de arriba (
 teclas `1` a `4` cuando el panel tiene el teclado). Nada se corta a lo ancho: lo que no cabe
 sigue en la línea de abajo.
 
-Se abre solo con el primer agente de la sesión si el terminal es ancho (desde 144 columnas);
-con `/agentes` se abre a cualquier ancho. Si lo cierras, no vuelve a abrirse solo hasta que
-lo pidas.
+Se abre solo con el primer agente de la sesión si el terminal es ancho (desde 144 columnas) y
+la conversación va a pantalla completa: si no, se llevaría un tercio de la altura. Con `/agentes`
+se abre siempre. Si lo cierras, no vuelve a abrirse solo hasta que lo pidas, tampoco en las
+sesiones siguientes.
 
 ### Pestaña Agentes
 
@@ -163,7 +168,9 @@ Los subagentes van agrupados por tarea (cada prompt tuyo que lanza alguno), la m
 arriba: hora de inicio, hora de fin, duración y tokens, que suben en vivo, con el total de la
 tarea. Debajo de cada uno, su tipo, el encargo, el modelo con el que corrió y el esfuerzo.
 `●` en curso, `✓` terminado, `✗` abortado o con error. Los tokens se cuentan igual que
-`sesión:` en la banda. Un agente que se retoma vuelve a «en curso» y sigue sumando en su línea.
+`sesión:` en la banda. Un agente que se retoma vuelve a «en curso» y sigue sumando en su línea:
+su duración no cuenta el tiempo que estuvo parado. Los agentes de un workflow y los que lanza otro
+agente van en la tarea de quien los lanzó, aunque hayas escrito otro prompt mientras tanto.
 
 ### Pestaña Tareas
 
@@ -238,7 +245,7 @@ Semana       80 % usado · se renueva vie 16, 22:00
 Caché
 Duración     1 hora
 Caduca       a las 15:14
-Plan         mantenerla hasta 11 h de pausa; después, compactar
+Plan         mantenerla hasta 6h56m de pausa; después, compactar
 Mantenerla   [ sí ]
 
 Trabajo
@@ -257,22 +264,29 @@ Histórico
 API: con un plan de suscripción es una equivalencia, no lo que pagas. Los límites solo
 aparecen en planes de suscripción, tras la primera respuesta.
 
+Si una parte del mod falla (por ejemplo, no se puede escribir el histórico), las demás siguen
+funcionando y el fallo sale al final de esta pestaña, en `Fallos`, hasta que vuelve a ir bien lo
+que falló. Si falla algo que acabas de pedir, un botón, un selector o un comando, se avisa al momento.
+
 ## Histórico de cada sesión
 
 **Finalidad:** que lo hecho en una sesión no se pierda al cerrarla: qué se hizo, cuánto tardó
 y cuánto costó, en un fichero que se puede leer, guardar o pasar a otra persona.
 
-Al acabar cada turno el mod reescribe `.claude/historial/sesion-<fecha UTC>.md` en el
-proyecto, con:
+Al acabar cada turno el mod reescribe `.claude/historial/sesion-<fecha UTC>.md` en la raíz donde
+empezó la conversación, aunque te muevas a otra carpeta o a un worktree, con:
 
 - duración, turnos, tokens (hilo principal y agentes) y coste;
-- el plan de tareas, con la hora de inicio, de fin y la duración de cada paso;
-- los agentes de cada tarea, con inicio, fin, duración, tokens, modelo y esfuerzo;
+- el plan de tareas, con la hora de inicio, de fin y la duración de cada paso, y los planes
+  anteriores de la conversación;
+- todos los agentes de cada tarea, con inicio, fin, duración, tokens, modelo y esfuerzo, también
+  los que `/agentes limpiar` quitó del panel;
 - las compactaciones, con lo que medía el contexto antes y después y dónde quedó su resumen.
 
-Un fichero por conversación: `/clear` empieza otro. Solo en sesiones interactivas y solo si
-hubo tareas, agentes o compactaciones. Si no los quieres en tu repositorio, añade
-`.claude/historial/` a `.gitignore`.
+Un fichero por conversación: `/clear` empieza otro. Un agente en segundo plano que sigue
+trabajando tras `/clear` continúa en el panel y en el fichero nuevo; en el anterior se queda «en
+curso». Solo en sesiones interactivas y solo si hubo tareas, agentes o compactaciones. Si no los
+quieres en tu repositorio, añade `**/.claude/historial/` a `.gitignore`.
 
 ## Caché viva en las pausas (opcional, desactivada de fábrica)
 
@@ -304,8 +318,8 @@ pausa.
 
 | Contexto (Opus 5.5) | Mantiene hasta | Después |
 |---|---|---|
-| 500.000 tokens | unas 11 horas de pausa | compacta una vez |
-| 100.000 tokens | 12 horas (el tope) | la deja caducar |
+| 500.000 tokens | unas 7 horas de pausa | compacta una vez |
+| 100.000 tokens | unas 11 horas (el tope) | la deja caducar |
 
 ### Cuándo compensa
 
@@ -318,13 +332,25 @@ pausa.
 
 ### Protecciones y límites
 
-- Solo actúa en reposo, en sesiones interactivas y con Claude Code abierto.
+- Solo actúa en reposo, en la terminal y con Claude Code abierto: en el escritorio y en VS Code
+  el mod no tiene quién mantenga la pausa, y la opción no se ofrece.
 - No empieza hasta haber visto que la caché dura una hora (una petición que acierta tras más
   de cinco minutos de pausa). Con caché de cinco minutos no hace nada.
-- Si una consulta ya no encuentra la caché, deja de intentarlo en esa pausa.
-- Al volver a trabajar, la cuenta de la pausa empieza de cero.
-- Cada consulta gasta cupo del plan: lee todo el contexto a precio de caché. Las cuentas usan
-  los precios de la API (leer caché 0,1 veces el precio de entrada; 0,05 en Opus 5.5 y 0,025 en
+- Si una consulta ya no encuentra la caché, deja de intentarlo y la duración vuelve a «sin
+  confirmar»: no sigue pagando pausa tras pausa una caché que puede ser de cinco minutos.
+- Si una consulta falla por la API, no dice nada de la caché: la repite a los 3 minutos mientras
+  quede plazo. Sin plazo, compacta si tocaba compactar, y si no lo deja dicho en la pestaña.
+- Solo compacta donde el motor también lo haría: con el compactado automático apagado en
+  `/config`, o con `"idleCompaction": false` en `settings.json`, la mantiene y la deja caducar.
+- Al volver a trabajar, la cuenta de la pausa empieza de cero. Si cambias de modelo o compactas,
+  no hay nada que mantener hasta la siguiente petición.
+- Claude Code compacta por su cuenta una conversación parada desde los 200.000 tokens, a los 54
+  minutos. Con la caché viva activada y su plan en marcha, el mod frena esa compactación y decide
+  él con la cuenta de arriba; lo demás (tu `/compact`, el compactado por llegar al umbral) sigue
+  igual. Con la caché viva desactivada el motor hace lo de siempre: no esperes a la hora de la
+  marca en una sesión parada.
+- Cada consulta gasta cupo del plan: lee todo el contexto a precio de caché, y lo que escriba
+  entra en `Gastado`. Las cuentas usan los precios de la API (leer caché 0,1 veces el precio de entrada; 0,05 en Opus 5.5 y 0,025 en
   Fable 5.1; escribirla, 2 veces); cómo pesa cada cosa en el cupo de una suscripción no es público.
 - Compactar pierde detalle, como siempre; el resumen se guarda igual en `.claude/resumenes/`.
 - Para decidir, estima que el resumen ocupa unos 15.000 tokens y que el contexto queda en
@@ -335,12 +361,13 @@ pausa.
 - **Una variable de entorno del proceso**, `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, solo
   mientras dura la sesión. No modifica `settings.json`.
 - **Ficheros de resumen** en `.claude/resumenes/` y **el histórico de cada sesión** en
-  `.claude/historial/`, dentro del proyecto. Si no los quieres en tu repositorio, añade esas
-  carpetas a `.gitignore`.
+  `.claude/historial/`, en la raíz del proyecto. Si no los quieres en tu repositorio, añade
+  `**/.claude/resumenes/` y `**/.claude/historial/` a `.gitignore`.
 - **Una consulta a Claude Code** (`claude -p /usage --safe-mode --no-session-persistence`) al
   arrancar la sesión y, como mucho, cada 5 minutos: de ahí sale el límite semanal propio de cada
   modelo. Tarda unos 3 segundos, no llama al modelo, no carga tus plugins ni servidores MCP y no
-  guarda sesión. Si tu plan no tiene límites por modelo, se hace una sola vez.
+  guarda sesión. Si tu plan no tiene límites por modelo, se hace una sola vez; si falla, se vuelve a
+  probar a los 5, 15 y 60 minutos, y mientras tanto la línea enseña el límite de todos.
 - **Una herramienta y unas líneas de prompt de sistema** para que Claude lleve el plan, solo
   donde no tiene su propia lista de tareas y solo en sesiones interactivas.
 - **El modelo y el esfuerzo de los subagentes**, solo de los tipos a los que se lo pongas en
@@ -350,8 +377,8 @@ pausa.
 - **Un `powershell.exe` oculto por sesión** (unos 85 MB) que lee el uso de CPU y RAM
   por WMI. Se cierra con la sesión. No sale nada del equipo: no hay red ni telemetría.
 
-Los ajustes (umbral de compactado, tabla de enrutadores, caché viva) se guardan en el almacén
-del plugin y valen para todas tus sesiones y proyectos.
+Los ajustes (umbral de compactado, tabla de enrutadores, caché viva y si cerraste el panel) se
+guardan en el almacén del plugin y valen para todas tus sesiones y proyectos. Sobreviven a `/clear`.
 
 ## Límites
 
@@ -363,15 +390,16 @@ del plugin y valen para todas tus sesiones y proyectos.
 - Por debajo de 200.000 no se puede bajar: con el umbral cerca de lo que ocupa una
   sesión recién compactada, el motor entra en bucle y aborta el turno.
 - El punto exacto de compactado sale de las reservas que usa el motor en la versión
-  2.1.293. Si una versión posterior las cambia, la marca puede desviarse unos miles
-  de tokens.
+  2.1.314. Si una versión posterior las cambia, o si bajas `CLAUDE_CODE_MAX_OUTPUT_TOKENS` de
+  20.000, la marca puede desviarse unos miles de tokens.
 - El límite de todos los modelos llega con la primera respuesta de cada sesión; el propio de un
   modelo se lee del texto de `/usage` y puede ir hasta 5 minutos por detrás. Si una versión de
   Claude Code cambia ese texto, la línea vuelve a enseñar el de todos los modelos.
 - CPU y RAM solo se muestran en Windows y en sesiones interactivas. En macOS y Linux
   el resto de la banda funciona igual.
 - El registro de agentes y el plan de tareas duran lo que la sesión; lo que queda después es
-  el histórico.
+  el histórico. Un `claude --resume` empieza un fichero de histórico nuevo, y `Gastado` cuenta
+  desde que se retomó, mientras que `Coste API` y `Turnos` traen toda la conversación.
 - La pestaña Tareas depende de que Claude lleve un plan: en una pregunta o un cambio de un solo
   paso se queda vacía.
 
@@ -384,15 +412,188 @@ claude plugin marketplace remove tokens-sesion
 
 ## Desarrollo
 
-Es un plugin de *function hooks*: `hooks/register.tsx` es el módulo (la banda y el panel:
-Claude Code carga un solo módulo por plugin), `hooks/barra.tsx` la barra que recibe el ratón y
-`types/index.d.ts` el contrato de su estado. Las pruebas están en `tests/`.
+Es un plugin de *function hooks*. El motor carga un solo módulo, `hooks/register.tsx`: el cuadro
+de conexiones. Cada herramienta vive en su fichero de `hooks/herramientas/` con su estado y sus
+hooks propios, y lo que comparten está en `hooks/util.ts`.
+
+| Fichero | Qué es |
+|---|---|
+| `hooks/register.tsx` | Los eventos que comparten varias herramientas; `rehidratar`, que repone lo borrado por `/clear` |
+| `hooks/util.ts` | Funciones puras, si hay alguien delante (`esInteractiva`) y los fallos (`aislar`, `aislarAhora`, `leerFallos`) |
+| `herramientas/banda.tsx`, `barra.tsx` | La banda sobre el prompt y la barra que recibe el ratón |
+| `herramientas/compactado.ts` | El umbral, la ventana del motor y el resumen de cada compactación |
+| `herramientas/contador.ts`, `equipo.ts`, `limites.ts` | Tokens de la sesión, CPU y RAM, límites del plan |
+| `herramientas/panel.tsx` | El panel: sus pestañas y el comando `/agentes` |
+| `herramientas/agentes.tsx`, `tareas.tsx`, `rutas.tsx`, `sesion.tsx` | Una pestaña cada una, y lo que hay detrás |
+| `herramientas/cache.ts` | La caché viva |
+| `types/index.d.ts` | El contrato de `$.state` |
+| `tests/apoyo.ts`, `tests/mundo.test.ts` | El arnés común y el ejemplo del que partir en una herramienta nueva |
 
 ```
 claude plugin validate .
 claude plugin test .
 claude --plugin-dir .
+tsc -p .claude-plugin/types
 ```
+
+`validate` y `test` no miran los tipos. `tsc` sí, con el `tsconfig.json` que el motor deja en
+`.claude-plugin/types/` cuando una sesión interactiva carga el mod con `--plugin-dir` (con `claude -p`
+no los deja). Esa carpeta no se versiona, y sus tipos son los de la última carga.
+
+### Añadir una herramienta
+
+1. **Su fichero**: `hooks/herramientas/<nombre>.ts` (`.tsx` si dibuja), con su estado dentro, sus
+   hooks en `registrar<Nombre>(on)`, con o sin matcher, y lo que haga al arrancar, como registrar un
+   comando, en `arrancar<Nombre>($)`. En `register.tsx` solo van los eventos sin matcher que comparten
+   varias herramientas. Los eventos y sus campos están en los tipos del motor: se buscan por su nombre
+   (`'tool.call'`) en `.claude-plugin/types/claude-code/index.d.ts`. Con `immediate: true` un comando
+   corre aunque haya un turno en marcha; sin él, espera a que acabe.
+2. **Enchufarla** en `register.tsx`: impórtala, llama a `registrar<Nombre>(on)` al principio de
+   `register` y a `await aislar('<Nombre>', arrancar<Nombre>($))` en `session.start`, detrás de las
+   demás y justo antes de `await update($, hidratada, () => true)`. En los eventos que comparte con
+   otras, su llamada va dentro de `aislar`, que espera el trabajo sin dejar salir su fallo: sale en la
+   pestaña Sesión y la herramienta no se lleva a las demás por delante.
+   - Lo que deba seguir tras un `next` sin esperarlo va con `void aislar(...)`.
+   - `aislar` recibe una promesa: llama a una `async function`, o lo que lance antes de devolverla
+     se le escapa.
+   - Un fallo se borra cuando va bien lo que falló, y eso lo dice la clave, que sin tercer argumento
+     es el nombre: si una herramienta hace trabajos que fallan por separado, dale a cada uno la suya,
+     `aislar('Notas', guardarNota($), 'guardar-nota')`. Lo que pide la persona desde un `onPress` va
+     con `aislarAhora($, ...)`, que además avisa al momento.
+   - `turn.start`, `turn.step` y `turn.complete` saltan también por cada subagente, con `e.agentId`.
+     Lo que sea solo del hilo principal va bajo `e.agentId === undefined`.
+3. **Su estado** en el contrato, `types/index.d.ts`, cada valor de `$.state` con su tipo.
+4. **Si tiene pestaña**: una fila en `PESTANAS` y su `case` en `dibujarPestana` (los dos en
+   `panel.tsx`; sin el `case`, `tsc` da error y la pestaña dice que no tiene dibujo) y su id en
+   `pestana`, en el contrato. En la fila, `nombres` es lo que se escribe tras `/agentes` para abrirla
+   y `tecla`, su atajo. La pestaña dibuja con una `async function dibujar<Nombre>($, e)` cuyo árbol
+   lleva `key="cuerpo"`, y lee de `$.state`: lo de `$.store` no la redibuja. Un comando propio que
+   abra el panel va en `registrarPanel` y llama a `responder($, '<nombre>')`: `panel.tsx` ya importa
+   la herramienta, y al revés habría un import circular.
+5. **Lo que dura y lo que no**. `/clear` y `/resume` no vuelven a lanzar `session.start`: el motor
+   borra `$.state` al acabar `session.end` y el proceso sigue, con sus comandos y sus variables de módulo.
+   - Lo que sea de la conversación se reinicia con `reiniciar<Nombre>($)` dentro del
+     `if (e.reason === 'clear' || e.reason === 'resume')` de `session.end`. Las variables de módulo no
+     las borra nadie más, y lo de `$.state` también va ahí: esa escritura redibuja la pestaña abierta.
+   - Lo que dure más va a `$.store` (entre sesiones) o a una variable de módulo (entre
+     conversaciones) y se carga con `cargar<Nombre>($)` en tres sitios: `session.start`, para la sesión
+     nueva, corre una vez por proceso y otra por cada recarga del mod; `rehidratar`, para lo que borra
+     `/clear`; y `session.measure`, si lo guardado es común y otra sesión puede cambiarlo.
+   - `$.store` es un solo JSON por usuario, común a todas las sesiones, y `get` devuelve `unknown`. Se
+     escribe sobre lo guardado, nunca sobre la copia de `$.state`, que tras `/clear` está vacía hasta
+     que corre `rehidratar`: lee, valida, cambia, `$.store.set` y luego `update` del atom, como
+     `escribirRutas` en `rutas.tsx`. Si el `get` falla no escribas: pisarías lo guardado.
+6. **Sus pruebas** en `tests/<nombre>.test.ts`, con `claude plugin test .`. El kit corre tus hooks de
+   verdad, pero debajo no hay nada: cada `$.algo` lo responde tu prueba con `on('algo', ...)`, y lo
+   que no respondas falla en silencio dentro del `aislar` de quien lo pidió. Empieza copiando
+   `tests/mundo.test.ts`: `mundo($, on, guardado)`, de `tests/apoyo.ts`, responde lo que el mod pide
+   para arrancar y trae `w.slash`, `w.llamar`, `w.roto` para simular fallos y `w.store`.
+   - Las pestañas se leen con `const ui = await panel($)` y `ui.find({ key: 'cuerpo' })`, y sus filas
+     con `.children.map(shown)`. Antes de volver a montar el panel, `ui.unmount()`. Un botón se pulsa
+     con `ui.press({ key })`, seguido de `w.settle()`.
+   - El kit no borra `$.state`: para `/clear`, `const b = conBorrado(on)` al empezar la prueba,
+     `await limpiar($, b)` y después `w.clock.advance(REPUESTO_MS)` o `$.turn.start`, para que corra
+     `rehidratar`. `conBorrado` no redibuja los paneles montados: monta uno nuevo tras reponer.
+   - Para simular un fallo, devuelve `{ deny }`: un hook de prueba que lanza queda *skipped* y el `$`
+     falla con `no implementation for ...`, no con tu mensaje.
+   - Si tu herramienta lanza procesos, `tokens-sesion.test.ts` cuenta los suyos con `toHaveLength`.
+   - Lo que dependa del motor real, como el borrado de `$.state` o el orden de los eventos, se prueba
+     con `claude --plugin-dir .` en una sesión de verdad, con un `$.ui.toast` donde quieras ver qué pasa.
+7. **Su documentación** en este README: el comando en `Comandos`, la pestaña y cuántas hay en
+   `El panel`, y el fichero en la tabla de `Desarrollo`.
+
+Un ejemplo mínimo, con un contador en una pestaña propia:
+
+```tsx
+// hooks/herramientas/vueltas.tsx
+import { atom, read, update } from 'claude-code'
+import type { EngineInterface, On, RenderElement, RenderInput } from 'claude-code'
+
+const vueltas = atom({ plugin: 'tokens-sesion', key: 'vueltas' } as const, 0)
+
+export async function contarVuelta($: EngineInterface): Promise<void> {
+  await update($, vueltas, n => n + 1)
+}
+
+export async function dibujarVueltas(
+  $: EngineInterface,
+  e: RenderInput<'Pane'>,
+): Promise<RenderElement> {
+  const { Box, Text } = $.ui.resolve(e)
+
+  return (
+    <Box key="cuerpo" flexDirection="column">
+      <Text>{`Vueltas: ${await read($, vueltas)}`}</Text>
+    </Box>
+  )
+}
+
+export async function arrancarVueltas($: EngineInterface): Promise<void> {
+  await $.command.register({
+    name: 'vuelta',
+    description: 'Cuenta una vuelta',
+    argumentHint: '[nota]',
+    immediate: true,
+  })
+}
+
+export function registrarVueltas(on: On): void {
+  on('command.run', { command: 'vuelta' }, async ($, e) => {
+    await contarVuelta($)
+
+    return { text: `Vuelta contada (${e.args || 'sin nota'}).` }
+  })
+}
+```
+
+```tsx
+// hooks/register.tsx
+import { arrancarVueltas, registrarVueltas } from './herramientas/vueltas'
+// al principio de register:
+registrarVueltas(on)
+// en on('session.start'), detrás de las demás y justo antes de marcar `hidratada`:
+await aislar('Vueltas', arrancarVueltas($))
+```
+
+```ts
+// hooks/herramientas/panel.tsx
+import { dibujarVueltas } from './vueltas'
+// en PESTANAS:
+{ id: 'vueltas', titulo: 'Vueltas', tecla: '5', nombres: ['vueltas'] },
+// en dibujarPestana:
+case 'vueltas':
+  return dibujarVueltas($, e)
+```
+
+```ts
+// types/index.d.ts
+vueltas: number
+pestana: 'agentes' | 'tareas' | 'enrutadores' | 'sesion' | 'vueltas'
+```
+
+`vueltas` no necesita más: su cuenta es de la conversación y vuelve a cero con `/clear`. Si la
+pestaña debe verlo al momento con el panel abierto, añade su `reiniciarVueltas($)`, como en el paso 5.
+
+### Las reglas del motor
+
+Comprobadas con Claude Code 2.1.314. Saltarse las primeras no da error de tipos: `claude plugin
+validate` o la carga del mod lo rechazan.
+
+| Regla | En la práctica |
+|---|---|
+| Carga un solo módulo, que sí puede importar | `hooks/hooks.json` nombra `register.tsx` y nada más |
+| `$` solo cruza un import hacia una `function` o `async function` declarada y llamada por su nombre | Ni una `const` con flecha, ni una tabla, ni un callback, ni `import *`. Por eso `dibujarPestana` es un `switch` |
+| Los `atom` se declaran en el fichero que hace `read` y `update` | Las demás herramientas usan accesores: `leerX($)` |
+| Un evento sin matcher se engancha una sola vez en todo el mod | Los compartidos están en `register.tsx`; con matchers distintos puede haber varios |
+| `on` sí se puede pasar a una función importada | Por eso cada herramienta tiene `registrar<Nombre>(on)` |
+| `$.env.get` y `$.env.set` llevan el nombre literal | Nada de una `const` con el nombre de la variable |
+| El contrato no importa nada | `Shaped` se usa dentro de `declare module`, sin `import` |
+| `Client` lleva el `module` relativo al fichero que lo dibuja | `module="./barra.tsx"` en `banda.tsx` |
+| Un dibujo no escribe `$.state` | Se escribe desde el `onPress` o desde otro evento |
+| Un dibujo solo se repite si cambia lo que leyó de `$.state` | Lo de `$.store` se copia a un atom y la pestaña lee el atom. Lo que esté en una variable de módulo pide `$.ui.invalidate('ui.render')` |
+| Cada `get` de `$.state` de un mismo evento lee el mismo momento | Tras un `next` lento, una escritura renueva la foto: `update($, valor, v => v)` |
+| Un texto con un carácter de control hace que el motor rechace el árbol y cierre el panel | Lo que venga de fuera pasa por `limpio` o `resumir` |
+| `$.state` sobrevive a una recarga del mod, y las variables de módulo no; `/clear` es al revés | Si cambia la forma de un valor, `Shaped<T>` y `atom(ref, inicial, { shape })`, y lo que había se migra en `session.start` (`migrarAgentes`) |
 
 ## Licencia
 

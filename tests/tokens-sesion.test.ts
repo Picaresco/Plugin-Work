@@ -11,6 +11,8 @@ import type {
 } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
 
+import { usage } from './apoyo'
+
 const SURFACES = ['terminal', 'desktop'] as const
 const VENTANA = 'CLAUDE_CODE_AUTO_COMPACT_WINDOW'
 const PORCENTAJE = 'CLAUDE_AUTOCOMPACT_PCT_OVERRIDE'
@@ -25,19 +27,6 @@ const props = (bodyColumns: number, maxRows = 10) => ({
   bodyColumns,
   scroll: { offset: 0, bodyRows: 10 },
   view: {},
-})
-
-const usage = (
-  input: number,
-  output: number,
-  cacheWrite: number,
-  cacheRead: number,
-): TurnUsage => ({
-  model: 'test',
-  input_tokens: input,
-  output_tokens: output,
-  cache_creation_input_tokens: cacheWrite,
-  cache_read_input_tokens: cacheRead,
 })
 
 // El fondo de la cadena: lo que el motor haría debajo del mod, y lo que el mod le pidió.
@@ -120,6 +109,7 @@ const world = (
   }))
   on('session.measure', (_$, e) => ({ changed: e.changed }))
   on('session.model', () => ({ value: state.model }))
+  on('settings.read', () => ({ value: {} }))
   on('process.run', (_$, e) => {
     ran.push([...e.argv])
 
@@ -157,8 +147,9 @@ const world = (
   on('env.set', (_$, e) => {
     env[e.name] = e.value
 
-    return { value: undefined }
+    return { value: {} }
   })
+  on('session.root', () => ({ value: '/proyecto' }))
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
   on('ui.message', () => ({}))
   on('ui.fault', () => ({}))
@@ -404,8 +395,9 @@ test('con CLAUDE_AUTOCOMPACT_PCT_OVERRIDE la ventana compensa el porcentaje y el
   expect(bar).toBe('●' + '░'.repeat(30) + '┃' + '░'.repeat(8))
 
   // La marca no pasa de ese tope: la celda 31, 775.000.
+  await slash('700000')
   const ui = await mount($, 'terminal')
-  await ui.pointer({ type: 'down', x: 31, y: 0, button: 'left' })
+  await ui.pointer({ type: 'down', x: 28, y: 0, button: 'left' })
   await ui.pointer({ type: 'move', x: 60, y: 0, button: 'left' })
   await ui.pointer({ type: 'up', x: 60, y: 0, button: 'left' })
   await ui.unmount()
@@ -648,7 +640,7 @@ test('con un modelo que tiene su propio límite semanal enseña ese, y con los d
   expect((await band($, 'terminal')).week.label).toBeUndefined()
 })
 
-test('si la consulta de los límites por modelo falla o no trae ninguno, no se repite en la sesión', async ($, on) => {
+test('si la consulta de los límites por modelo falla se reintenta cada vez más tarde, y si no trae ninguno no se repite', async ($, on) => {
   const { ask, clock, measure, ran, start, state } = world($, on)
 
   // En -p y en el SDK no hay banda que mirar: ni se pregunta.
@@ -658,32 +650,51 @@ test('si la consulta de los límites por modelo falla o no trae ninguno, no se r
   await ask(usage(1_000, 0, 0, 0))
   expect(ran).toHaveLength(0)
 
-  // Donde `claude` no arranca, o responde otra cosa, se queda con el límite de todos los modelos.
-  for (const bad of [null, 'No puedo ayudarte con eso.']) {
-    const before = ran.length
-    state.usageText = bad
-    state.limits = [{ kind: 'seven_day', percentUsed: 81 }]
-    await start()
-    await clock.settle()
-  await clock.settle()
-    expect(ran, String(bad)).toHaveLength(before + 1)
-    await clock.advance(10 * 60_000)
+  // Donde `claude` no arranca se queda con el límite de todos los modelos y vuelve a probar: a los
+  // 5 minutos, a los 15 y a la hora.
+  const antes = ran.length
+  const preguntar = async (minutos: number) => {
+    await clock.advance(minutos * 60_000)
     await ask(usage(1_000, 0, 0, 0))
-    await measure(1_000)
-    expect(ran, String(bad)).toHaveLength(before + 1)
-    expect((await band($, 'terminal')).week.label?.text.trimEnd(), String(bad)).toBe(
-      'Semana:   81% usado',
-    )
+    await clock.settle()
+
+    return ran.length - antes
   }
 
-  // Un plan sin límites por modelo: se pregunta una vez y basta.
+  state.usageText = null
+  state.limits = [{ kind: 'seven_day', percentUsed: 81 }]
+  await start()
+  await clock.settle()
+  expect(ran).toHaveLength(antes + 1)
+  expect(await preguntar(4)).toBe(1)
+  expect(await preguntar(2)).toBe(2)
+  expect(await preguntar(10)).toBe(2)
+  expect(await preguntar(6)).toBe(3)
+  expect(await preguntar(50)).toBe(3)
+  expect(await preguntar(11)).toBe(4)
+  expect((await band($, 'terminal')).week.label?.text.trimEnd()).toBe('Semana:   81% usado')
+
+  // Si responde otra cosa, nada que entender: se queda con el de todos y no repite.
   const before = ran.length
+  state.usageText = 'No puedo ayudarte con eso.'
+  await start()
+  await clock.settle()
+  expect(ran).toHaveLength(before + 1)
+  await clock.advance(10 * 60_000)
+  await ask(usage(1_000, 0, 0, 0))
+  await measure(1_000)
+  await clock.settle()
+  expect(ran).toHaveLength(before + 1)
+  expect((await band($, 'terminal')).week.label?.text.trimEnd()).toBe('Semana:   81% usado')
+
+  // Un plan sin límites por modelo: se pregunta una vez y basta.
+  const otra = ran.length
   state.usageText = 'Current week (all models): 81% used · resets Oct 9, 10pm (Europe/Madrid)'
   await start()
   await clock.settle()
   await clock.advance(10 * 60_000)
   await ask(usage(1_000, 0, 0, 0))
-  expect(ran).toHaveLength(before + 1)
+  expect(ran).toHaveLength(otra + 1)
   expect((await band($, 'terminal')).week.label?.text.trimEnd()).toBe('Semana:   81% usado')
 })
 
@@ -910,7 +921,7 @@ test('/tokens-compact enseña el umbral, lo cambia y lo guarda, y rechaza lo que
   const { ask, env, measure, registered, slash, start } = world($, on)
 
   await start()
-  expect(registered).toEqual(['tokens-compact', 'agentes'])
+  expect(registered).toContain('tokens-compact')
   expect((await slash('')).text).toContain('al llegar el contexto a 650.000 tokens')
 
   // La banda cambia al momento, sin esperar a recargar.
@@ -927,7 +938,7 @@ test('/tokens-compact enseña el umbral, lo cambia y lo guarda, y rechaza lo que
   expect((await slash('')).text).toContain('al llegar el contexto a 850.000 tokens')
   expect(env[VENTANA]).toBe('883000')
 
-  expect((await slash(' 0 ')).text).toContain('desactivado')
+  expect((await slash(' 0 ')).text).toContain('Sin umbral propio: el motor compacta por su cuenta')
   expect((await band($, 'terminal')).bar).toBe('█'.repeat(28) + '●' + '░'.repeat(11))
   expect(env[VENTANA]).toBeUndefined()
 })

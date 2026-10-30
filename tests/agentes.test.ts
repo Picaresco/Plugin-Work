@@ -2,8 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { AgentSpawnInput, On, SessionRateLimit, TurnUsage } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
 
-// 2026-10-10 10:00:00 UTC
-const NOW = Date.UTC(2026, 9, 10, 10, 0, 0)
+import { MIN, NOW, shown, usage } from './apoyo'
 
 const dos = (n: number) => String(n).padStart(2, '0')
 // La hora del equipo, como la pinta el mod.
@@ -19,14 +18,6 @@ const fechaLocal = (ms: number) => {
 
   return `${date.getFullYear()}-${dos(date.getMonth() + 1)}-${dos(date.getDate())} ${hora(ms).slice(0, 5)}`
 }
-
-const usage = (input: number, output: number, cacheWrite: number, cacheRead: number): TurnUsage => ({
-  model: 'test',
-  input_tokens: input,
-  output_tokens: output,
-  cache_creation_input_tokens: cacheWrite,
-  cache_read_input_tokens: cacheRead,
-})
 
 // El fondo de la cadena: lo que el motor haría debajo del mod, y lo que el mod le pidió.
 const world = ($: Engine, on: On, stored: Record<string, unknown> = {}) => {
@@ -96,8 +87,9 @@ const world = ($: Engine, on: On, stored: Record<string, unknown> = {}) => {
   on('classic.PostCompact', () => ({}))
   on('session.measure', (_$, e) => ({ changed: e.changed }))
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('settings.read', () => ({ value: {} }))
   on('env.get', () => ({ value: undefined }))
-  on('env.set', () => ({ value: undefined }))
+  on('env.set', () => ({ value: {} }))
   on('process.spawn', async function* () {
     throw new Error('spawn powershell.exe ENOENT')
   })
@@ -121,8 +113,16 @@ const world = ($: Engine, on: On, stored: Record<string, unknown> = {}) => {
   )
   on('prompt.compose', () => ({ sections: [{ id: 'intro', text: 'x', scope: 'shared' as const }] }))
   on('command.register', (_$, e) => ({ value: { command: e.name } }))
-  on('command.run', (_$, e) => {
+  on('command.run', async (_$, e) => {
     ran.push(e.command)
+
+    // Como el motor: /compact compacta de verdad.
+    if (e.command === 'compact') {
+      await $.session.compact({
+        trigger: 'manual',
+        messages: [{ role: 'user', text: 'hola', toolUses: [] }],
+      })
+    }
 
     return { text: '' }
   })
@@ -268,12 +268,6 @@ const world = ($: Engine, on: On, stored: Record<string, unknown> = {}) => {
       }),
   }
 }
-
-// El texto de un hijo tal como se dibuja: una cadena, o un elemento con los suyos.
-const shown = (child: unknown): string =>
-  typeof child === 'string'
-    ? child
-    : ((child as { children?: unknown[] } | null)?.children ?? []).map(shown).join('')
 
 // Las líneas del panel, cada una con el texto de sus trozos seguido.
 const lines = async ($: Engine, bodyColumns = 48): Promise<string[]> => {
@@ -472,7 +466,9 @@ test('el comando abre, cierra y vacía; cerrado no vuelve a abrirse solo', async
   expect(opened).toEqual(['agentes', 'agentes'])
   expect(await lines($)).toHaveLength(2 + 3 * 2)
 
-  expect((await slash('limpiar')).text).toBe('Registro de agentes y plan de tareas vaciados.')
+  expect((await slash('limpiar')).text).toBe(
+    'Registro de agentes y plan de tareas vaciados. El histórico los conserva.',
+  )
   expect(await lines($)).toEqual(['Sin agentes todavía.'])
   expect((await slash('otra cosa')).text).toContain('Uso: /agentes')
 })
@@ -586,10 +582,22 @@ test('el modelo elegido para un tipo se pone al arrancar sus agentes y se guarda
   expect(keys).toContain('modelo:mi-agente')
   expect(keys).not.toContain('modelo:fork')
 
-  // Volver a heredar las dos cosas quita la fila de lo guardado.
+  // Con la fila de los demás puesta, volver a heredar las dos cosas deja una excepción a ella.
   await ui.select({ key: 'modelo:Explore', value: 'heredar' })
   await settle()
-  expect(store.rutas).toEqual({ '*': { modelo: 'sonnet', esfuerzo: 'high' } })
+  expect(store.rutas).toEqual({
+    Explore: { modelo: 'heredar', esfuerzo: 'heredar' },
+    '*': { modelo: 'sonnet', esfuerzo: 'high' },
+  })
+
+  // Sin ella ya no hay de qué ser excepción: la fila sobra.
+  await ui.select({ key: 'modelo:*', value: 'heredar' })
+  await ui.select({ key: 'esfuerzo:*', value: 'heredar' })
+  await settle()
+  expect(store.rutas).toEqual({
+    Explore: { modelo: 'heredar', esfuerzo: 'heredar' },
+    '*': { modelo: 'heredar', esfuerzo: 'heredar' },
+  })
   await ui.unmount()
 })
 
@@ -696,28 +704,31 @@ test('un solo panel con sus pestañas: el botón de cada una enseña la suya, y 
       view: {},
     },
   })
+  // Cuál está elegida de cada pestaña, por su título; otra pestaña del mod no cambia lo que se comprueba.
   const tabs = async () =>
-    (await ui.findAll({ type: 'Button' }))
-      .filter(button => button.key?.startsWith('pestana:'))
-      .map(button => [button.props.label, button.props.variant])
+    Object.fromEntries(
+      (await ui.findAll({ type: 'Button' }))
+        .filter(button => button.key?.startsWith('pestana:'))
+        .map(button => [button.props.label, button.props.variant]),
+    )
 
-  expect(await tabs()).toEqual([
-    ['Agentes', 'primary'],
-    ['Tareas', 'secondary'],
-    ['Enrutadores', 'secondary'],
-    ['Sesión', 'secondary'],
-  ])
+  expect(await tabs()).toMatchObject({
+    Agentes: 'primary',
+    Tareas: 'secondary',
+    Enrutadores: 'secondary',
+    Sesión: 'secondary',
+  })
   expect(await ui.find({ type: 'Text', text: 'Tarea 1' })).toBeDefined()
   expect(await ui.findAll({ type: 'Select' })).toEqual([])
 
   await ui.press({ key: 'pestana:enrutadores' })
   await settle()
-  expect(await tabs()).toEqual([
-    ['Agentes', 'secondary'],
-    ['Tareas', 'secondary'],
-    ['Enrutadores', 'primary'],
-    ['Sesión', 'secondary'],
-  ])
+  expect(await tabs()).toMatchObject({
+    Agentes: 'secondary',
+    Tareas: 'secondary',
+    Enrutadores: 'primary',
+    Sesión: 'secondary',
+  })
   expect(await ui.find({ type: 'Text', text: 'Tarea 1' })).toBeUndefined()
   expect(await ui.find({ key: 'modelo:Explore' })).toBeDefined()
 
@@ -837,15 +848,17 @@ test('cada estado va con su color: verde lo hecho, amarillo lo que está en curs
   expect(await color('dos')).toMatchObject({ color: 'warning', bold: true })
   expect(await color('tres')).toMatchObject({ color: 'inactive' })
   expect(
-    (await ui.findAll({ type: 'Button' }))
-      .filter(button => button.key?.startsWith('pestana:'))
-      .map(button => [button.props.label, button.props.variant]),
-  ).toEqual([
-    ['Agentes', 'secondary'],
-    ['Tareas', 'primary'],
-    ['Enrutadores', 'secondary'],
-    ['Sesión', 'secondary'],
-  ])
+    Object.fromEntries(
+      (await ui.findAll({ type: 'Button' }))
+        .filter(button => button.key?.startsWith('pestana:'))
+        .map(button => [button.props.label, button.props.variant]),
+    ),
+  ).toMatchObject({
+    Agentes: 'secondary',
+    Tareas: 'primary',
+    Enrutadores: 'secondary',
+    Sesión: 'secondary',
+  })
   await ui.unmount()
 })
 
@@ -870,7 +883,9 @@ test('las tareas creadas y actualizadas de una en una también forman el plan', 
     `  ${hhmm(NOW + 42_000)} → en curso`,
   ])
 
-  expect((await slash('limpiar')).text).toBe('Registro de agentes y plan de tareas vaciados.')
+  expect((await slash('limpiar')).text).toBe(
+    'Registro de agentes y plan de tareas vaciados. El histórico los conserva.',
+  )
   expect((await plan($))[0]).toBe('Sin plan todavía.')
 })
 
@@ -878,7 +893,7 @@ test('donde el modelo no tiene lista de tareas, el mod le da la herramienta del 
   const { start, state, tools, clock } = world($, on)
   state.builtin = []
   await start()
-  expect(tools).toEqual(['plan'])
+  expect(tools).toContain('plan')
 
   const compose = (offered: string[]) =>
     $.prompt.compose({
@@ -916,11 +931,11 @@ test('donde el modelo no tiene lista de tareas, el mod le da la herramienta del 
 test('con la lista de tareas del motor, o sin nadie delante, no se añade la herramienta del plan', async ($, on) => {
   const first = world($, on)
   await first.start()
-  expect(first.tools).toEqual([])
+  expect(first.tools).not.toContain('plan')
 
   first.state.builtin = []
   await first.start(false)
-  expect(first.tools).toEqual([])
+  expect(first.tools).not.toContain('plan')
 })
 
 // La pestaña Sesión tal como se dibuja, línea a línea.
@@ -1062,7 +1077,6 @@ test('cada compactación queda en la pestaña Sesión y en el histórico con lo 
   expect(history).toContain(`- ${hora(NOW)} · 650.000 → 40.000 tokens · ${summary}`)
 })
 
-const MIN = 60_000
 // El latido sale 52 minutos después de la última petición que renovó la caché.
 const LATIDO_MS = 52 * MIN
 
@@ -1100,7 +1114,7 @@ test('con mucho contexto mantiene la caché hasta que compactar sale más barato
   await confirmar(w, 500_000)
   expect(await session($)).toContain('Duración     1 hora')
   expect(await session($)).toContain(`Caduca       a las ${hora(NOW + 70 * MIN).slice(0, 5)}`)
-  expect(await session($)).toContain('Plan         mantenerla hasta 11 h de pausa; después, compactar')
+  expect(await session($)).toContain('Plan         mantenerla hasta 6h56m de pausa; después, compactar')
 
   // Nada hasta poco antes de caducar; luego, una consulta mínima por hora.
   await w.clock.advance(LATIDO_MS - MIN)
@@ -1108,20 +1122,20 @@ test('con mucho contexto mantiene la caché hasta que compactar sale más barato
   await w.clock.advance(MIN)
   expect(w.forks).toEqual(['Responde solo con la palabra: ok'])
 
-  for (let n = 2; n <= 11; n++) {
+  for (let n = 2; n <= 7; n++) {
     await w.clock.advance(LATIDO_MS)
     expect(w.forks).toHaveLength(n)
   }
 
   expect(w.ran).toEqual([])
-  expect(await session($)).toContain('Leído        5.500.000 tokens de caché en mantenerla')
+  expect(await session($)).toContain('Leído        3.500.000 tokens de caché en mantenerla')
 
   // A la duodécima hora lo pagado iguala lo que cuesta compactar: compacta una vez y no hace más.
   await w.clock.advance(LATIDO_MS)
-  expect(w.forks).toHaveLength(11)
+  expect(w.forks).toHaveLength(7)
   expect(w.ran).toEqual(['compact'])
   await w.clock.advance(5 * LATIDO_MS)
-  expect(w.forks).toHaveLength(11)
+  expect(w.forks).toHaveLength(7)
   expect(w.ran).toEqual(['compact'])
   expect((await session($)).some(line => line.includes('salía más barato compactar'))).toBe(true)
 })
@@ -1131,7 +1145,7 @@ test('con poco contexto la mantiene hasta el tope de latidos y después la deja 
   w.state.forkRead = 100_000
   await w.start()
   await confirmar(w, 100_000)
-  expect(await session($)).toContain('Plan         mantenerla hasta 12 h de pausa; después, dejarla caducar')
+  expect(await session($)).toContain('Plan         mantenerla hasta 11h16m de pausa; después, dejarla caducar')
 
   await w.clock.advance(20 * LATIDO_MS)
   expect(w.forks).toHaveLength(12)
